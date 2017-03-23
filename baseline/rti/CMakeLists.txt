@@ -5,8 +5,24 @@ find_package(CUDA QUIET REQUIRED)
 set(
     CUDA_NVCC_FLAGS
     ${CUDA_NVCC_FLAGS};
-#    -O3 -gencode arch=compute_20,code=sm_20
-    -O3 --gpu-architecture=sm_53
+    -O3
+    -gencode arch=compute_20,code=sm_20
+    -gencode arch=compute_37,code=sm_37
+#    -O3 --gpu-architecture=sm_37
+#        For convenience, in case of simple nvcc compilations, the following shorthand
+#        is supported.  If no value for option '--gpu-code' is specified, then the
+#        value of this option defaults to the value of '--gpu-architecture'.  In this
+#        situation, as only exception to the description above, the value specified
+#        for '--gpu-architecture' may be a 'real' architecture (such as a sm_50),
+#        in which case nvcc uses the specified 'real' architecture and its closest
+#        'virtual' architecture as effective architecture values.  For example, 'nvcc
+#        --gpu-architecture=sm_50' is equivalent to 'nvcc --gpu-architecture=compute_50
+#        --gpu-code=sm_50,compute_50'.
+#        Allowed values for this option:  'compute_20','compute_30','compute_32',
+#        'compute_35','compute_37','compute_50','compute_52','compute_53','compute_60',
+#        'compute_61','compute_62','sm_20','sm_21','sm_30','sm_32','sm_35','sm_37',
+#        'sm_50','sm_52','sm_53','sm_60','sm_61','sm_62'.
+
     )
 
 # Specify include directories
