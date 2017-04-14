@@ -896,7 +896,7 @@ Grid::Grid(std::vector<std::unique_ptr<const Mesh>>& m) : AccelerationStructure(
     }
     // Create the grid
     Vec3f size = bbox[1] - bbox[0];
-    float cubeRoot = std::powf(totalNumTriangles / (size.x * size.y * size.z), 1. / 3.f);
+    float cubeRoot = powf(totalNumTriangles / (size.x * size.y * size.z), 1. / 3.f);
     for (uint8_t i = 0; i < 3; ++i) {
         resolution[i] = std::floor(size[i] * cubeRoot);
         if (resolution[i] < 1) resolution[i] = 1;
@@ -911,7 +911,7 @@ Grid::Grid(std::vector<std::unique_ptr<const Mesh>>& m) : AccelerationStructure(
     // [/comment]
     uint32_t numCells = resolution.x * resolution.y * resolution.z;
     cells = new Grid::Cell* [numCells];
-    memset(cells, 0x0, sizeof(Grid::Grid*) * numCells);
+    wmemset((wchar_t*)cells, 0x0, sizeof(Grid::Grid*) * numCells);
     
     for (const auto& m : meshes) {
         for (uint32_t i = 0, off = 0; i < m->numTriangles; ++i, off += 3) {
