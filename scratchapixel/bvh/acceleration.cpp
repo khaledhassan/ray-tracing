@@ -118,7 +118,87 @@ public:
         m[2][0] = m20; m[2][1] = m21; m[2][2] = m22; m[2][3] = m23;
         m[3][0] = m30; m[3][1] = m31; m[3][2] = m32; m[3][3] = m33;
     }
-    Matrix44 inverse() const { Matrix44 matInv = *this; return matInv; }
+    Matrix44 inverse() const { 
+        int i, j, k;
+        Matrix44 s;
+        Matrix44 t (*this);
+        
+        // Forward elimination
+        for (i = 0; i < 3 ; i++) {
+            int pivot = i;
+            
+            T pivotsize = t[i][i];
+            
+            if (pivotsize < 0)
+                pivotsize = -pivotsize;
+                
+                for (j = i + 1; j < 4; j++) {
+                    T tmp = t[j][i];
+                    
+                    if (tmp < 0)
+                        tmp = -tmp;
+                        
+                        if (tmp > pivotsize) {
+                            pivot = j;
+                            pivotsize = tmp;
+                        }
+                }
+            
+            if (pivotsize == 0) {
+                // Cannot invert singular matrix
+                return Matrix44();
+            }
+            
+            if (pivot != i) {
+                for (j = 0; j < 4; j++) {
+                    T tmp;
+                    
+                    tmp = t[i][j];
+                    t[i][j] = t[pivot][j];
+                    t[pivot][j] = tmp;
+                    
+                    tmp = s[i][j];
+                    s[i][j] = s[pivot][j];
+                    s[pivot][j] = tmp;
+                }
+            }
+            
+            for (j = i + 1; j < 4; j++) {
+                T f = t[j][i] / t[i][i];
+                
+                for (k = 0; k < 4; k++) {
+                    t[j][k] -= f * t[i][k];
+                    s[j][k] -= f * s[i][k];
+                }
+            }
+        }
+        
+        // Backward substitution
+        for (i = 3; i >= 0; --i) {
+            T f;
+            
+            if ((f = t[i][i]) == 0) {
+                // Cannot invert singular matrix
+                return Matrix44();
+            }
+            
+            for (j = 0; j < 4; j++) {
+                t[i][j] /= f;
+                s[i][j] /= f;
+            }
+            
+            for (j = 0; j < i; j++) {
+                f = t[j][i];
+                
+                for (k = 0; k < 4; k++) {
+                    t[j][k] -= f * t[i][k];
+                    s[j][k] -= f * s[i][k];
+                }
+            }
+        }
+        
+        return s;
+    }
     T* operator [] (size_t i) { return &m[i][0]; }
     const T* operator [] (size_t i) const { return &m[i][0]; }
     T m[4][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
@@ -258,6 +338,9 @@ public:
             assert(polygonNumVertsArray[i] >= 3);
             numTriangles += polygonNumVertsArray[i] - 2;
         }
+        
+        //printf("numTriangles inside Mesh constructor: %d\n", numTriangles);
+        
         // create array to store the triangle indices in the vertex pool
         triangleIndicesInVertexPool.reserve(numTriangles * 3);
         mailbox.reserve(numTriangles); // should all be initialized with 0
@@ -394,9 +477,47 @@ Vec3f dVBezier(const Vec3f* controlPoints, float u, float v)
     return derivBezier(uCurve, v); 
 }
 
+#include "dragon_edges.h"
+#include "dragon_normals_xyz.h"
+#include "dragon_st.h"
+#include "dragon_vertices_xyz_real.h"
+
+std::vector<std::unique_ptr<const Mesh>> createDragon()
+{
+    Matrix44f rotate90(1, 0, 0, 0, 
+                       0, 0, 1, 0, 
+                       0, 1, 0, 0, 
+                       0, 0, 0, 1);
+    std::vector<std::unique_ptr<const Mesh>> meshes;
+    //uint32_t width = 8, height = 8;
+    uint32_t numPolygons = dragonNumFaces;
+    std::vector<uint32_t> polyNumVertsArray(numPolygons, 3);
+    std::vector<uint32_t> polyIndicesInVertPool(numPolygons * 3);
+    // set indices
+    for (uint32_t i = 0; i < numPolygons*3; ++i) {
+        polyIndicesInVertPool[i] = dragonVertsIndexes[i];
+    }
+    
+    std::vector<Vec3f> vertPool(dragonNumVerts);
+    for (uint32_t i = 0; i < dragonNumVerts; ++i) {
+            vertPool[i].x = dragonVerts[i*3    ];
+            vertPool[i].y = dragonVerts[i*3 + 1];
+            vertPool[i].z = dragonVerts[i*3 + 2];
+    }
+    
+    meshes.emplace_back(new Mesh(numPolygons, polyNumVertsArray, polyIndicesInVertPool, vertPool));
+    //printf("meshes[0]->numTriangles inside createDragon: %d\n", meshes[0]->numTriangles);
+    return meshes;
+}
+
+
+
 std::vector<std::unique_ptr<const Mesh>> createUtahTeapot()
 {
-    Matrix44f rotate90(1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
+    Matrix44f rotate90(1, 0, 0, 0, 
+                       0, 0, 1, 0, 
+                       0, 1, 0, 0, 
+                       0, 0, 0, 1);
     std::vector<std::unique_ptr<const Mesh>> meshes;
     uint32_t width = 8, height = 8;
     uint32_t numPolygons = width * height;
@@ -440,7 +561,9 @@ std::vector<std::unique_ptr<const Mesh>> createUtahTeapot()
 
 void makeScene(std::vector<std::unique_ptr<const Mesh>>& meshes)
 {
-    meshes = std::move(createUtahTeapot());
+    meshes = std::move(createDragon());
+    //printf("meshes[0]->numTriangles inside makeScene: %d\n", meshes[0]->numTriangles);
+    //meshes = std::move(createUtahTeapot());
 }
 
 template<typename T>
@@ -911,7 +1034,7 @@ Grid::Grid(std::vector<std::unique_ptr<const Mesh>>& m) : AccelerationStructure(
     // [/comment]
     uint32_t numCells = resolution.x * resolution.y * resolution.z;
     cells = new Grid::Cell* [numCells];
-    wmemset((wchar_t*)cells, 0x0, sizeof(Grid::Grid*) * numCells);
+    wmemset((wchar_t*)cells, 0x0, sizeof(Grid::Cell*) * numCells);
     
     for (const auto& m : meshes) {
         for (uint32_t i = 0, off = 0; i < m->numTriangles; ++i, off += 3) {
@@ -1045,7 +1168,8 @@ bool Grid::intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId,
 void render(const std::unique_ptr<AccelerationStructure>& accel, const Options& options)
 {
     std::unique_ptr<Vec3f []> buffer(new Vec3f[options.width * options.height]);
-    Vec3f orig(0,0,5);
+    Vec3f orig;
+    //Vec3f orig(0,0,5);
     matPointMult(options.cameraToWorld, orig);
     float scale = std::tan(degToRad<float>(options.fov * 0.5));
     float imageAspectRatio = options.width / static_cast<float>(options.height);
@@ -1105,6 +1229,13 @@ int main(int argc, char **argv)
 {
     std::vector<std::unique_ptr<const Mesh>> meshes;
     makeScene(meshes);
+    //printf("meshes[0]->numTriangles inside main: %d\n", meshes[0]->numTriangles);
+
+    //exportMesh(meshes);
+    uint32_t numTriangles = 0;
+    for (const auto& mesh : meshes) {
+        numTriangles += mesh->numTriangles;
+    }
 
     // [comment]
     // Create the acceleration structure
@@ -1119,12 +1250,16 @@ int main(int argc, char **argv)
     std::unique_ptr<AccelerationStructure> accel(new AccelerationStructure(meshes));
 #endif
 
-    //exportMesh(meshes);
-    uint32_t numTriangles = 0;
-    for (const auto& mesh : meshes) {
-        numTriangles += mesh->numTriangles;
-    }
     Options options;
+    Matrix44f dragon_cam = Matrix44f(0.92388, 0.19134, 0.33141, 0,
+                                     0.38268, -0.46194, -0.80010, 0, 
+                                     0, 0.86603, -0.50000, 0, 
+                                   -15, -15, -100, 1);
+    options.cameraToWorld = dragon_cam.inverse();
+    //options.cameraToWorld = Matrix44f(1, 0, 0, 0,
+    //                                  0, 1, 0, 0,
+    //                                  0, 0, 1, 0,
+    //                                  0, 0, -100, 1).inverse();
     using Time = std::chrono::high_resolution_clock;
     using fsec = std::chrono::duration<float>;
     auto t0 = Time::now();
@@ -1134,7 +1269,9 @@ int main(int argc, char **argv)
     std::cout << "Render time                                 | " << fs.count() << " sec" << std::endl;
     std::cout << "Total number of triangles                   | " << numTriangles << std::endl;
     std::cout << "Total number of primary rays                | " << numPrimaryRays << std::endl;
+#if defined(ACCEL_BBOX)
     std::cout << "Total number of ray-bbox tests              | " << numRayBBoxTests << std::endl;
+#endif
     std::cout << "Total number of ray-boundvolume tests       | " << numRayBoundingVolumeTests << std::endl;
     std::cout << "Total number of ray-triangles tests         | " << numRayTriangleTests << std::endl;
     std::cout << "Total number of ray-triangles intersections | " << numRayTriangleIntersections << std::endl;
