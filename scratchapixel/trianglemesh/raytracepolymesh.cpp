@@ -355,6 +355,65 @@ TriangleMesh* loadDragon(void)
     
 }
 
+#include "uh60_vertices_xyz.h"
+#include "uh60_vertices_normals.h"
+#include "uh60_vertices_st.h"
+#include "uh60_edges.h"
+
+TriangleMesh* loaduh60(void)
+{
+        // read from header 
+	uint32_t numFaces = uh60NumFaces; //37986
+
+	printf("numFaces = %d\n", numFaces);
+
+        std::unique_ptr<uint32_t []> faceIndex(new uint32_t[numFaces]);
+        uint32_t vertsIndexArraySize = 0;
+
+        // reading face index array
+        for (uint32_t i = 0; i < numFaces; ++i) {
+            faceIndex[i] = 3; // hardcode to 3 for triangles? #yolo
+            vertsIndexArraySize += faceIndex[i]; // 113958 at end
+        }
+
+	printf("vertsIndexArraySize = %d\n", vertsIndexArraySize);
+
+        std::unique_ptr<uint32_t []> vertsIndex(new uint32_t[vertsIndexArraySize]);
+        uint32_t vertsArraySize = 0;
+        // reading vertex index array
+        for (uint32_t i = 0; i < vertsIndexArraySize; ++i) {
+            vertsIndex[i] = uh60VertsIndexes[i];
+            if (vertsIndex[i] > vertsArraySize) vertsArraySize = vertsIndex[i];
+        }
+        vertsArraySize += 1;
+
+	printf("vertsArraySize = %d\n", vertsArraySize);
+
+        // reading vertices
+        std::unique_ptr<Vec3f []> verts(new Vec3f[vertsArraySize]);
+        for (uint32_t i = 0; i < vertsArraySize; ++i) {
+            verts[i].x = uh60Verts[i][0];
+            verts[i].y = uh60Verts[i][1];
+            verts[i].z = uh60Verts[i][2];
+        }
+        // reading normals
+        std::unique_ptr<Vec3f []> normals(new Vec3f[vertsArraySize]);
+        for (uint32_t i = 0; i < vertsArraySize; ++i) {
+            normals[i].x = uh60Normals[i][0];
+            normals[i].y = uh60Normals[i][1];
+            normals[i].z = uh60Normals[i][2];
+        }
+        // reading st coordinates
+        std::unique_ptr<Vec2f []> st(new Vec2f[vertsArraySize]);
+        for (uint32_t i = 0; i < vertsArraySize; ++i) {
+            st[i].x = uh60ST[i][0];
+            st[i].y = uh60ST[i][1];
+        }
+        
+        return new TriangleMesh(numFaces, faceIndex, vertsIndex, verts, normals, st);
+    
+}
+
 TriangleMesh* loadPolyMeshFromFile(const char *file)
 {
     std::ifstream ifs;
@@ -529,16 +588,23 @@ rotation_orig =  [[ 0.707107  -0.331295   0.624695]
 
     */
 
-//    Matrix44f tmp = Matrix44f(0.707107, -0.331295, 0.624695, 0, 0, 0.883452, 0.468521, 0, -0.707107, -0.331295, 0.624695, 0, -1.63871, -5.747777-10, -40.400412-20, 1);
-    Matrix44f tmp = Matrix44f(0.92388, 0.19134, 0.33141, 0,
-                              0.38268, -0.46194, -0.80010, 0, 
-                              0, 0.86603, -0.50000, 0, 
-                              -15, -15, -100, 1);
-    options.cameraToWorld = tmp.inverse();
+    Matrix44f tmp = Matrix44f(0.707107, -0.331295, 0.624695, 0, 0, 0.883452, 0.468521, 0, -0.707107, -0.331295, 0.624695, 0, -1.63871, -5.747777-10, -40.400412-20, 1);
+    Matrix44f dragon_cam = Matrix44f(0.92388, 0.19134, 0.33141, 0,
+                                     0.38268, -0.46194, -0.80010, 0, 
+                                     0, 0.86603, -0.50000, 0, 
+                                   -15, -15, -100, 1);
+    Matrix44f uh60_cam = Matrix44f(-0.5, 0, 0.86603, 0,
+                                   0.86603, 0, 0.5, 0, 
+                                    0, 1, 0, 0, 
+                                   0, 0, -20, 1);
+    //options.cameraToWorld = dragon_cam.inverse();
+    options.cameraToWorld = uh60_cam.inverse();
+    //options.cameraToWorld = tmp.inverse();
     options.fov = 50.0393;
 #if 1
     std::vector<std::unique_ptr<Object>> objects;
-    TriangleMesh *mesh = loadDragon();
+    //TriangleMesh *mesh = loadDragon();
+    TriangleMesh *mesh = loaduh60();
     //TriangleMesh *mesh = loadPolyMeshFromFile("./cow.geo");
     if (mesh != nullptr) objects.push_back(std::unique_ptr<Object>(mesh));
     
