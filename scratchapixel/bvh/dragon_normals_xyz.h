@@ -1,6 +1,6 @@
 const static uint32_t dragonNumNormals = 22126;
 
-float dragonNormals[dragonNumNormals][3] = {0.492477, -0.614643, -0.616169,
+float dragonNormals[dragonNumNormals*3] = {0.492477, -0.614643, -0.616169,
 0.619678, -0.597949, -0.508316,
 0.538163, -0.730033, -0.421155,
 0.439802, -0.743004, -0.50444,

@@ -597,14 +597,14 @@ rotation_orig =  [[ 0.707107  -0.331295   0.624695]
                                    0.86603, 0, 0.5, 0, 
                                     0, 1, 0, 0, 
                                    0, 0, -20, 1);
-    //options.cameraToWorld = dragon_cam.inverse();
-    options.cameraToWorld = uh60_cam.inverse();
+    options.cameraToWorld = dragon_cam.inverse();
+    //options.cameraToWorld = uh60_cam.inverse();
     //options.cameraToWorld = tmp.inverse();
     options.fov = 50.0393;
 #if 1
     std::vector<std::unique_ptr<Object>> objects;
-    //TriangleMesh *mesh = loadDragon();
-    TriangleMesh *mesh = loaduh60();
+    TriangleMesh *mesh = loadDragon();
+    //TriangleMesh *mesh = loaduh60();
     //TriangleMesh *mesh = loadPolyMeshFromFile("./cow.geo");
     if (mesh != nullptr) objects.push_back(std::unique_ptr<Object>(mesh));
     

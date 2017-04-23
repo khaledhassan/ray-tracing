@@ -44,6 +44,8 @@
 #include <chrono>
 #include <queue>
 
+#include <omp.h>
+
 #ifndef M_PI
 #define M_PI (3.14159265358979323846)
 #endif
@@ -58,6 +60,35 @@ std::atomic<uint32_t> numRayBBoxTests(0);
 std::atomic<uint32_t> numRayBoundingVolumeTests(0);
 
 template<typename T>
+class Vec2
+{
+public:
+    Vec2() : x(0), y(0) {}
+    Vec2(T xx) : x(xx), y(xx) {}
+    Vec2(T xx, T yy) : x(xx), y(yy) {}
+    Vec2 operator + (const Vec2 &v) const
+    { return Vec2(x + v.x, y + v.y); }
+    Vec2 operator / (const T &r) const
+    { return Vec2(x / r, y / r); }
+    Vec2 operator * (const T &r) const
+    { return Vec2(x * r, y * r); }
+    Vec2& operator /= (const T &r)
+    { x /= r, y /= r; return *this; }
+    Vec2& operator *= (const T &r)
+    { x *= r, y *= r; return *this; }
+    friend std::ostream& operator << (std::ostream &s, const Vec2<T> &v)
+    {
+        return s << '[' << v.x << ' ' << v.y << ']';
+    }
+    friend Vec2 operator * (const T &r, const Vec2<T> &v)
+    { return Vec2(v.x * r, v.y * r); }
+    T x, y;
+};
+
+typedef Vec2<float> Vec2f;
+typedef Vec2<int> Vec2i;
+
+template<typename T>
 class Vec3
 {
 public:
@@ -67,6 +98,20 @@ public:
     Vec3 operator * (const T& r) const { return Vec3(x * r, y * r, z * r); }
     Vec3 operator + (const Vec3& v) const { return Vec3(x + v.x, y + v.y, z + v.z); }
     Vec3 operator - (const Vec3& v) const { return Vec3(x - v.x, y - v.y, z - v.z); }
+    Vec3 operator - () const { return Vec3(-x, -y, -z); }
+    T dotProduct(const Vec3<T> &v) const { return x * v.x + y * v.y + z * v.z; }
+    Vec3 crossProduct(const Vec3<T> &v) const { return Vec3<T>(y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x); }
+    T norm() const { return x * x + y * y + z * z; }
+    Vec3& normalize()
+    {
+        T n = norm();
+        if (n > 0) {
+            T factor = 1 / sqrt(n);
+            x *= factor, y *= factor, z *= factor;
+        }
+        
+        return *this;
+    }
     template<typename U>
     Vec3 operator / (const Vec3<U>& v) const { return Vec3(x / v.x, y / v.y, z / v.z); }
     friend Vec3 operator / (const T r, const Vec3& v)
@@ -309,7 +354,7 @@ public:
         objectToWorld(objectToWorld_), worldToObject(objectToWorld.inverse()) 
     {}
     virtual ~GeomPrimitive() {}
-    virtual bool intersect(const Vec3f&, const Vec3f&, float &) const = 0;
+    virtual bool intersect(const Vec3f&, const Vec3f&, float &, uint32_t &, Vec2f&) const = 0;
     Matrix44f objectToWorld;
     Matrix44f worldToObject;
     BBox<> bbox;
@@ -356,7 +401,7 @@ public:
             offset += polygonNumVertsArray[i];
         }
     }
-    bool intersect(const Vec3f&, const Vec3f&, float &t) const;
+    bool intersect(const Vec3f&, const Vec3f&, float &t, uint32_t &intersectedTriIndex, Vec2f &uv) const;
     uint32_t numTriangles = { 0 };
     std::vector<uint32_t> triangleIndicesInVertexPool;
     std::vector<Vec3f> vertexPool;
@@ -399,12 +444,11 @@ bool rayTriangleIntersect(
     return true; 
 }
 
-bool Mesh::intersect(const Vec3f& rayOrig, const Vec3f& rayDir, float &tNear) const
+bool Mesh::intersect(const Vec3f& rayOrig, const Vec3f& rayDir, float &tNear, uint32_t &intersectedTriIndex, Vec2f &uv) const
 {
     // naive approach, loop over all triangles in the mesh and return true if one 
     // of the triangles at least is intersected
     float t, u, v;
-    uint32_t intersectedTriIndex;
     bool intersected = false;
     // tNear should be set inifnity first time this function is called and it 
     // will get eventually smaller as the ray intersects geometry
@@ -417,9 +461,12 @@ bool Mesh::intersect(const Vec3f& rayOrig, const Vec3f& rayDir, float &tNear) co
             tNear = t;
             intersectedTriIndex = i;
             intersected = true;
+            uv.x = u;
+            uv.y = v;
         }
     }
 
+    
     return intersected;
 }
 
@@ -573,8 +620,8 @@ T degToRad(const T& angle) { return angle / 180.f * M_PI; }
 struct Options
 {
     float fov = { 90 };
-    uint32_t width = { 640 };
-    uint32_t height = { 480 };
+    uint32_t width = { 1024 };
+    uint32_t height = { 768 };
     Matrix44f cameraToWorld, worldToCamera;
 };
 
@@ -597,7 +644,7 @@ public:
     // [/comment]
     AccelerationStructure(std::vector<std::unique_ptr<const Mesh>>& m) : meshes(std::move(m)) {}
     virtual ~AccelerationStructure() {}
-    virtual bool intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit) const
+    virtual bool intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit, uint32_t &intersectedTriIndex, Vec2f &uv) const
     {
         // [comment]
         // Because we don't want to change the content of the mesh itself, just get a point to it so
@@ -608,9 +655,12 @@ public:
         const Mesh* intersectedMesh = nullptr;
         float t = kInfinity;
         for (const auto& mesh: meshes) {
-            if (mesh->intersect(orig, dir, t) && t < tHit) {
+            Vec2f uvtest;
+            if (mesh->intersect(orig, dir, t, intersectedTriIndex, uvtest) && t < tHit) {
                 intersectedMesh = mesh.get();
                 tHit = t;
+                uv.x = uvtest.x;
+                uv.y = uvtest.y;
             }
         }
 
@@ -635,7 +685,7 @@ public:
     // then test if the ray intersects the mesh itsefl. It is obvious that the ray can't
     // intersect the mesh if it doesn't intersect its boudning volume (a box in this case)
     // [/comment]
-    virtual bool intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit) const
+    virtual bool intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit, uint32_t &intersectedTriIndex, Vec2f &uv) const
     {
         const Mesh* intersectedMesh = nullptr;
         const Vec3f invDir = 1 / dir;
@@ -647,9 +697,12 @@ public:
                 // Then test if the ray intersects the mesh and if does then first check
                 // if the intersection distance is the nearest and if we pass that test as well
                 // then update tNear variable with t and keep a pointer to the intersected mesh
-                if (mesh->intersect(orig, dir, t) && t < tHit) {
+                Vec2f uvtest;
+                if (mesh->intersect(orig, dir, t, intersectedTriIndex, uvtest) && t < tHit) {
                     tHit = t;
                     intersectedMesh = mesh.get();
+                    uv.x = uvtest.x;
+                    uv.y = uvtest.y;
                 }
             }
         }
@@ -847,7 +900,7 @@ class BVH : public AccelerationStructure
     Octree* octree = nullptr;
 public:
     BVH(std::vector<std::unique_ptr<const Mesh>>& m);
-    bool intersect(const Vec3f&, const Vec3f&, const uint32_t&, float&) const;
+    bool intersect(const Vec3f&, const Vec3f&, const uint32_t&, float&, uint32_t&, Vec2f&) const;
     ~BVH() { delete octree; }
 };
 
@@ -910,7 +963,7 @@ bool BVH::Extents::intersect(
     return true;
 }
 
-bool BVH::intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit) const
+bool BVH::intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit, uint32_t &intersectedTriIndex, Vec2f &uv) const
 {
     tHit = kInfinity;
     const Mesh* intersectedMesh = nullptr;
@@ -950,9 +1003,12 @@ bool BVH::intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, 
         if (node->isLeaf) {
             for (const auto& e: node->nodeExtentsList) {
                 float t = kInfinity;
-                if (e->mesh->intersect(orig, dir, t) && t < tHit) {
+                Vec2f uvtest;
+                if (e->mesh->intersect(orig, dir, t, intersectedTriIndex, uvtest) && t < tHit) {
                     tHit = t;
                     intersectedMesh = e->mesh;
+                    uv.x = uvtest.x;
+                    uv.y = uvtest.y;
                 }
             }
         }
@@ -1002,7 +1058,7 @@ public:
             if (cells[i] != NULL) delete cells[i];
         delete [] cells;
     }
-    bool intersect(const Vec3f&, const Vec3f&, const uint32_t&, float&) const;
+    bool intersect(const Vec3f&, const Vec3f&, const uint32_t&, float&, uint32_t&, Vec2f&) const;
     Cell **cells;
     BBox<> bbox;
     Vec3<uint32_t> resolution;
@@ -1106,7 +1162,7 @@ bool Grid::Cell::intersect(
 }
 
 
-bool Grid::intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit) const
+bool Grid::intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId, float& tHit, uint32_t &intersectedTriIndex, Vec2f &uv) const
 {
     const Vec3f invDir = 1 / dir;
     const Vec3b sign(dir.x < 0, dir.y < 0, dir.z < 0);
@@ -1159,6 +1215,61 @@ bool Grid::intersect(const Vec3f& orig, const Vec3f& dir, const uint32_t& rayId,
     return (intersectedMesh != nullptr);
 }
 
+// what is index in raytracepolymesh's trace? is it the same as intersectedTriIndex? yes
+// get u and v from rayTriangleIntersect?
+Vec3f pixelColor(Vec3f orig, Vec3f dir, float tHit, uint32_t intersectedTriIndex, Vec2f& uv)
+{
+
+    Vec3f hitNormal;
+    Vec2f hitTextureCoordinates;
+
+    Vec3f hitPoint = orig + dir * tHit;
+    
+    Vec3f hitColor = Vec3f(0.843137, 0.67451, 0.235294);; // "= options.backgroundColor;" in raytracepolymesh, 
+                    // but background color is handled in render() for this program
+
+    uint32_t vertexIndex0 = dragonVertsIndexes[intersectedTriIndex*3 + 0];
+    uint32_t vertexIndex1 = dragonVertsIndexes[intersectedTriIndex*3 + 1];
+    uint32_t vertexIndex2 = dragonVertsIndexes[intersectedTriIndex*3 + 2];
+        
+
+    // face normal
+    Vec3f v0;
+    v0.x = dragonVerts[vertexIndex0    ];
+    v0.y = dragonVerts[vertexIndex0 + 1];
+    v0.z = dragonVerts[vertexIndex0 + 2];
+    Vec3f v1;
+    v1.x = dragonVerts[vertexIndex1    ];
+    v1.y = dragonVerts[vertexIndex1 + 1];
+    v1.z = dragonVerts[vertexIndex1 + 2];
+    Vec3f v2;
+    v2.x = dragonVerts[vertexIndex2    ];
+    v2.y = dragonVerts[vertexIndex2 + 1];
+    v2.z = dragonVerts[vertexIndex2 + 2];    
+    hitNormal = (v1 - v0).crossProduct(v2 - v0);
+    hitNormal.normalize();
+    
+    // texture coordinates
+    Vec2f st0;
+    st0.x = dragonST[vertexIndex0][0];
+    st0.y = dragonST[vertexIndex0][1];
+    Vec2f st1;
+    st1.x = dragonST[vertexIndex1][0];
+    st1.y = dragonST[vertexIndex1][1];
+    Vec2f st2;
+    st2.x = dragonST[vertexIndex2][0];
+    st2.y = dragonST[vertexIndex2][1];
+    hitTextureCoordinates = (1 - uv.x - uv.y) * st0 + uv.x * st1 + uv.y * st2;
+    
+    //float NdotView = std::max(0.f, hitNormal.dotProduct(-dir));
+    float NdotView = fabs(hitNormal.dotProduct(-dir));
+    const int M = 10;
+    float checker = (fmod(hitTextureCoordinates.x * M, 1.0) > 0.5) ^ (fmod(hitTextureCoordinates.y * M, 1.0) < 0.5);
+    float c = 0.3 * (1 - checker) + 0.7 * checker;
+    hitColor = c * NdotView; //Vec3f(uv.x, uv.y, 0);
+    return hitColor;
+}
+
 // [comment]
 // Main Render() function. Loop over each pixel in the image and trace a primary
 // ray starting from the camera origin and passing through the current pixel. If they
@@ -1175,7 +1286,9 @@ void render(const std::unique_ptr<AccelerationStructure>& accel, const Options& 
     float imageAspectRatio = options.width / static_cast<float>(options.height);
     assert(imageAspectRatio > 1);
     uint32_t rayId = 1; // Start at 1 not 0!! (see Grid code and mailboxing)
+    #pragma omp parallel for
     for (uint32_t j = 0; j < options.height; ++j) {
+        #pragma omp parallel for schedule(static,8)
         for (uint32_t i = 0; i < options.width; ++i) {
             Vec3f dir((2 * (i + 0.5f) / options.width - 1) * scale * imageAspectRatio,
                       (1 - 2 * (j + 0.5) / options.height) * scale,
@@ -1184,7 +1297,18 @@ void render(const std::unique_ptr<AccelerationStructure>& accel, const Options& 
             normalize(dir);
             numPrimaryRays++;
             float tHit = kInfinity;
-            buffer[j * options.width + i] = (accel->intersect(orig, dir, rayId++, tHit)) ? Vec3f(1) :  Vec3f(0);
+            uint32_t intersectedTriIndex;
+            Vec2f uv;
+            #if defined(ACCEL_GRID)
+            if (accel->intersect(orig, dir, rayId++, tHit, intersectedTriIndex, uv))
+            #else
+            if (accel->intersect(orig, dir, 0, tHit, intersectedTriIndex, uv))
+            #endif
+            {
+                buffer[j * options.width + i] = pixelColor(orig, dir, tHit, intersectedTriIndex, uv);
+            } else {
+                buffer[j * options.width + i] = Vec3f(0.843137, 0.67451, 0.235294);
+            }
         }
     }
 
@@ -1256,6 +1380,7 @@ int main(int argc, char **argv)
                                      0, 0.86603, -0.50000, 0, 
                                    -15, -15, -100, 1);
     options.cameraToWorld = dragon_cam.inverse();
+    options.fov = 50.0393;
     //options.cameraToWorld = Matrix44f(1, 0, 0, 0,
     //                                  0, 1, 0, 0,
     //                                  0, 0, 1, 0,
