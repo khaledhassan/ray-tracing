@@ -18,6 +18,6 @@ module load gcc/5.2.0
 
 cd /home/khaledjhassan/ray-tracing/scratchapixel/trianglemesh
 
-time ./trianglemesh
+time ./raytracepolymesh
 
 date
