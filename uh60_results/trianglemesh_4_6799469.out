@@ -1,0 +1,12 @@
+/home/khaledjhassan/ray-tracing/scratchapixel/hpg_scripts
+c28a-s4.ufhpc
+Tue Apr 25 22:51:33 EDT 2017
+Done: 145.89 (sec)
+numFaces = 46703
+vertsIndexArraySize = 140109
+vertsArraySize = 52601
+
+real	2m26.006s
+user	9m42.615s
+sys	0m0.010s
+Tue Apr 25 22:54:00 EDT 2017

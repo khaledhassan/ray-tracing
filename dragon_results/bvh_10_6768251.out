@@ -1,0 +1,14 @@
+/home/khaledjhassan/ray-tracing/scratchapixel/hpg_scripts
+c35a-s41.ufhpc
+Sun Apr 23 14:05:43 EDT 2017
+Render time                                 | 528.448 sec
+Total number of triangles                   | 37986
+Total number of primary rays                | 786432
+Total number of ray-boundvolume tests       | 786432
+Total number of ray-triangles tests         | 3814089820
+Total number of ray-triangles intersections | 285740
+
+real	8m48.507s
+user	46m48.010s
+sys	0m0.045s
+Sun Apr 23 14:14:33 EDT 2017
